@@ -3,6 +3,10 @@ const friction = 0.7; // friction coefficient of space (0=none, 1=lots)
 const gameLives = 3; // starting number of lives
 const saveKeyScore = "highscore" // save key for local storage of high score
 
+const starCount = 50; // number of stars in background
+const starSize = 4; // max size of stars in pixels
+const starDepth = 0.3; // max depth of stars in background
+
 const asteroidPtsLg = 20 // points scored for large asteroid
 const asteroidPtsMd = 50 // points scored for medium asteroid
 const asteroidPtsSm = 100 // points scored for small asteroid
@@ -16,6 +20,7 @@ const laserDist = 0.6; // max distance laser can travel as fraction of screen wi
 const laserExplodeDuration = 0.1 // duration of laser's explosion in seconds
 const laserMax = 10; // maximum number of lasers on screen
 const laserSpeed = 500; // speed of lasers in pixels per second
+
 const shipExplodeDuration = 0.3; // duration of the ship's explosion
 const shipBlinkDuration = 0.1; // duration of blink during invulnerability in seconds
 const shipInvDuration = 3; // duration of ship invulnerability in seconds
@@ -51,18 +56,42 @@ var asteroidsLeft, asteroidTotal;
 var level, lives, asteroids, score, scoreHigh, ship, text, textAlpha;
 newGame();
 
-var ship = newShip();
+
+// set up stars in background
+var stars = [];
+createStars();
 
 // set up asteroids
 var asteroids = [];
 createAsteroidBelt();
 
 //set up event handlers
-	document.addEventListener("keydown", keyDown);
-	document.addEventListener("keyup", keyUp);
+document.addEventListener("keydown", keyDown);
+document.addEventListener("keyup", keyUp);
 
 // set up the game loop
 setInterval(update, 1000 / FPS);
+
+function createStars() {
+	stars = [];
+	starColors = [
+		'#eec',
+		'#aac',
+		'#977',
+		'#678',
+		'#556',
+	];
+	var x, y, r, starColor;
+	for (var i=0; i<starCount; i++) {
+		x = Math.floor(Math.random() * canv.width);
+		y = Math.floor(Math.random() * canv.height);
+		r = Math.ceil(Math.random() * (starSize/2));
+		starColor = starColors[Math.floor(Math.random() * starColors.length)];
+		depth = Math.random() * starDepth;
+
+		stars.push(newStar(x,y,r,starColor, depth));
+	}
+}
 
 function createAsteroidBelt() {
 	asteroids = [];
@@ -125,6 +154,7 @@ function distBetweenPoints(x1, y1, x2, y2) {
 
 function drawShip(x, y, a, color = "white") {
 	ctx.strokeStyle = color;
+	ctx.fillStyle = "black";
 	ctx.lineWidth = shipSize / 20;
 	ctx.beginPath();
 	ctx.moveTo( // nose of ship
@@ -141,6 +171,7 @@ function drawShip(x, y, a, color = "white") {
 		);
 	ctx.closePath();
 	ctx.stroke();
+	ctx.fill();
 } 
 
 function keyDown(ev) {
@@ -193,6 +224,20 @@ function keyUp(ev) {
     }
 }
 
+function newStar(x, y, r, c, d) {
+	return {
+		x: x,
+		y: y,
+		r: r,
+		color: c,
+		depth: d,
+		movement: {
+			x: 0,
+			y: 0
+		}
+	}
+}
+
 function newAsteroid(x, y, r) {
 	var lvlMult = 1 + 0.1 * level;
 	var asteroid = {
@@ -203,7 +248,11 @@ function newAsteroid(x, y, r) {
 		r: r,
 		a: Math.random() * Math.PI * 2, // in radians
 		vert: Math.floor(Math.random() * (asteroidVert+1) + asteroidVert/2), // vertex, random number between 5 and 15	
-		offsets: []
+		offsets: [],
+		movement: {
+			x: 0,
+			y: 0
+		}
 	}
 
 	// create the vertex offsets array
@@ -219,6 +268,7 @@ function newGame() {
 	lives = gameLives;
 	score = 0;
 	ship = newShip();
+	star = newStar();
 
 	//get the high score from local storage
 	var scoreStr = localStorage.getItem(saveKeyScore);
@@ -234,6 +284,7 @@ function newGame() {
 function newLevel() {
 	text = "Level " + (level+1);
 	textAlpha = 1.0;
+	createStars();
 	createAsteroidBelt();
 }
 
@@ -372,9 +423,104 @@ function update() {
 	// tick the music
 	music.tick();
 
-	//draw background (space)
+	// draw background (space)
 	ctx.fillStyle = "black",
 	ctx.fillRect(0, 0, canv.width, canv.height)
+
+	// draw the stars
+	var x, y, r, color;
+	for (var i=0; i<stars.length; i++) {
+		
+		// star properties
+		x = stars[i].x;
+		y = stars[i].y;
+		r = stars[i].r;
+		color = stars[i].color;
+
+		ctx.fillStyle = color;
+		ctx.lineWidth = 1;
+		// draw path
+		ctx.beginPath();
+		ctx.arc(x,y,r,0,Math.PI*2);
+		ctx.fill();
+	}
+
+	// move the stars
+	for (var i=0; i<stars.length; i++) {
+		star = stars[i];
+
+		if (ship.thrusting) {		
+			star.movement.x -= shipThrust * Math.cos(ship.a) * star.depth / FPS;
+			star.movement.y += shipThrust * Math.sin(ship.a) * star.depth / FPS;
+		} else {
+			star.movement.x -= friction * star.movement.x / FPS;
+			star.movement.y -= friction * star.movement.y / FPS;
+		}
+
+		star.x += star.movement.x;
+		star.y += star.movement.y;
+
+		handleEdge(star);
+	}	
+
+	//draw lives
+	var lifeColor;
+	for (var i=0; i<lives; i++) {
+		lifeColor = exploding && i == lives - 1 ? "red" : "white";
+		drawShip(shipSize + i * shipSize * 1.2, shipSize, 0.5 * Math.PI, lifeColor);
+	}
+
+	// draw the score
+	ctx.textAlign = "right";
+	ctx.textBaseline = "middle";
+	ctx.fillStyle = "white";
+	ctx.font = textSize + "px impact";
+	ctx.fillText(score, canv.width - shipSize/2, shipSize);
+
+	// draw the high score
+	ctx.textAlign = "center";
+	ctx.textBaseline = "middle";
+	ctx.fillStyle = "white";
+	ctx.font = (textSize * 0.7) + "px impact";
+	ctx.fillText("Best: "+ scoreHigh, canv.width/2, shipSize);
+
+	// draw the asteroids
+	var x, y, r, a, vert, offsets;
+
+	for (var i=0; i<asteroids.length; i++) {
+		ctx.strokeStyle = "slategrey";
+		ctx.fillStyle = "black";
+		ctx.lineWidth = shipSize / 15;
+
+		//get the asteroid properties
+		x = asteroids[i].x;
+		y = asteroids[i].y;
+		r = asteroids[i].r;
+		a = asteroids[i].a;
+		vert = asteroids[i].vert;
+		offsets = asteroids[i].offsets;
+
+		// draw a path
+		ctx.beginPath();
+		ctx.moveTo(
+			x + r * offsets[0] * Math.cos(a),
+			y + r * offsets[0] * Math.sin(a)
+			);
+
+		// draw a polygon
+		for (var j=1; j<vert; j++) {
+			ctx.lineTo(
+				x + r * offsets[j] * Math.cos(a + j * Math.PI * 2 / vert),
+				y + r * offsets[j] * Math.sin(a + j * Math.PI * 2 / vert)
+			)
+		}
+		ctx.closePath();
+		ctx.stroke();
+		ctx.fill();
+
+		showBounding(asteroids[i]);
+	}
+
 
 	//thrust the ship
 	if (ship.thrusting && !ship.dead) {
@@ -491,39 +637,6 @@ function update() {
 		
 	}
 
-	//draw game text
-	if (textAlpha >= 0) {
-		ctx.textAlign = "center";
-		ctx.textBaseline = "middle";
-		ctx.fillStyle = "rgba(255, 255, 255, " + textAlpha + ")";
-		ctx.font = "small-caps " + textSize + "px impact";
-		ctx.fillText(text, canv.width/2, canv.height * 0.75);
-		textAlpha -= (1.0 / textFadeTime / FPS);
-	} else if (ship.dead) {
-		newGame();
-	}
-
-	//draw lives
-	var lifeColor;
-	for (var i=0; i<lives; i++) {
-		lifeColor = exploding && i == lives - 1 ? "red" : "white";
-		drawShip(shipSize + i * shipSize * 1.2, shipSize, 0.5 * Math.PI, lifeColor);
-	}
-
-	// draw the score
-	ctx.textAlign = "right";
-	ctx.textBaseline = "middle";
-	ctx.fillStyle = "white";
-	ctx.font = textSize + "px impact";
-	ctx.fillText(score, canv.width - shipSize/2, shipSize);
-
-	// draw the high score
-	ctx.textAlign = "center";
-	ctx.textBaseline = "middle";
-	ctx.fillStyle = "white";
-	ctx.font = (textSize * 0.7) + "px impact";
-	ctx.fillText("Best: "+ scoreHigh, canv.width/2, shipSize);
-
 	// detect laser hit on asteroids
 	var ax, ay, ar, lx, ly;
 	for (var i=asteroids.length-1; i>=0; i--) {
@@ -551,39 +664,16 @@ function update() {
 		}
 	}
 
-	//draw the asteroids
-	var x, y, r, a, vert, offsets;
-
-	for (var i=0; i<asteroids.length; i++) {
-		ctx.strokeStyle = "slategrey";
-		ctx.lineWidth = shipSize / 15;
-
-		//get the asteroid properties
-		x = asteroids[i].x;
-		y = asteroids[i].y;
-		r = asteroids[i].r;
-		a = asteroids[i].a;
-		vert = asteroids[i].vert;
-		offsets = asteroids[i].offsets;
-
-		// draw a path
-		ctx.beginPath();
-		ctx.moveTo(
-			x + r * offsets[0] * Math.cos(a),
-			y + r * offsets[0] * Math.sin(a)
-			);
-
-		// draw a polygon
-		for (var j=1; j<vert; j++) {
-			ctx.lineTo(
-				x + r * offsets[j] * Math.cos(a + j * Math.PI * 2 / vert),
-				y + r * offsets[j] * Math.sin(a + j * Math.PI * 2 / vert)
-			)
-		}
-		ctx.closePath();
-		ctx.stroke();
-
-		showBounding(asteroids[i]);
+	//draw game text
+	if (textAlpha >= 0) {
+		ctx.textAlign = "center";
+		ctx.textBaseline = "middle";
+		ctx.fillStyle = "rgba(255, 255, 255, " + textAlpha + ")";
+		ctx.font = "small-caps " + textSize + "px impact";
+		ctx.fillText(text, canv.width/2, canv.height * 0.75);
+		textAlpha -= (1.0 / textFadeTime / FPS);
+	} else if (ship.dead) {
+		newGame();
 	}
 
 	//check for asteroid collisions
